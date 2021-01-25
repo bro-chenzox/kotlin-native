@@ -3,6 +3,7 @@
  * that can be found in the LICENSE file.
  */
 
+#include <Natives.h>
 #include "Memory.h"
 
 #include "Exceptions.h"
@@ -55,6 +56,11 @@ ALWAYS_INLINE mm::StableRefRegistry::Node* FromForeignRefManager(ForeignRefManag
 
 ALWAYS_INLINE mm::ThreadData* GetThreadData(MemoryState* state) {
     return FromMemoryState(state)->Get();
+}
+
+ALWAYS_INLINE RUNTIME_NOTHROW void UpdateRef(ObjHeader** location, const ObjHeader* object) {
+    mm::AssertThreadState(mm::ThreadRegistry::Instance().CurrentThreadData(), mm::ThreadState::kRunnable);
+    *const_cast<const ObjHeader**>(location) = object;
 }
 
 } // namespace
@@ -111,6 +117,7 @@ extern "C" void RestoreMemory(MemoryState*) {
 
 extern "C" RUNTIME_NOTHROW OBJ_GETTER(AllocInstance, const TypeInfo* typeInfo) {
     auto* threadData = mm::ThreadRegistry::Instance().CurrentThreadData();
+    mm::AssertThreadState(threadData, mm::ThreadState::kRunnable);
     auto* object = threadData->objectFactoryThreadQueue().CreateObject(typeInfo);
     RETURN_OBJ(object);
 }
@@ -120,6 +127,7 @@ extern "C" OBJ_GETTER(AllocArrayInstance, const TypeInfo* typeInfo, int32_t elem
         ThrowIllegalArgumentException();
     }
     auto* threadData = mm::ThreadRegistry::Instance().CurrentThreadData();
+    mm::AssertThreadState(threadData, mm::ThreadState::kRunnable);
     auto* array = threadData->objectFactoryThreadQueue().CreateArray(typeInfo, static_cast<uint32_t>(elements));
     // `ArrayHeader` and `ObjHeader` are expected to be compatible.
     RETURN_OBJ(reinterpret_cast<ObjHeader*>(array));
@@ -127,6 +135,7 @@ extern "C" OBJ_GETTER(AllocArrayInstance, const TypeInfo* typeInfo, int32_t elem
 
 extern "C" OBJ_GETTER(InitSingleton, ObjHeader** location, const TypeInfo* typeInfo, void (*ctor)(ObjHeader*)) {
     auto* threadData = mm::ThreadRegistry::Instance().CurrentThreadData();
+    mm::AssertThreadState(threadData, mm::ThreadState::kRunnable);
     // TODO: This should only be called if singleton is actually created here. It's possible that the
     // singleton will be created on a different thread and here we should check that, instead of creating
     // another one (and registering `location` twice).
@@ -136,6 +145,7 @@ extern "C" OBJ_GETTER(InitSingleton, ObjHeader** location, const TypeInfo* typeI
 
 extern "C" RUNTIME_NOTHROW void InitAndRegisterGlobal(ObjHeader** location, const ObjHeader* initialValue) {
     auto* threadData = mm::ThreadRegistry::Instance().CurrentThreadData();
+    mm::AssertThreadState(threadData, mm::ThreadState::kRunnable);
     mm::GlobalsRegistry::Instance().RegisterStorageForGlobal(threadData, location);
     TODO();
 }
@@ -253,4 +263,50 @@ extern "C" void AdoptReferenceFromSharedVariable(ObjHeader* object) {
 void CheckGlobalsAccessible() {
     // TODO: Remove when legacy MM is gone.
     // Always accessible
+}
+
+
+extern "C" RUNTIME_NOTHROW void SetStackRef(ObjHeader** location, const ObjHeader* object) {
+    ::UpdateRef(location, object);
+}
+
+extern "C" RUNTIME_NOTHROW void SetHeapRef(ObjHeader** location, const ObjHeader* object) {
+    ::UpdateRef(location, object);
+}
+
+extern "C" RUNTIME_NOTHROW void ZeroHeapRef(ObjHeader** location) {
+    mm::AssertThreadState(mm::ThreadRegistry::Instance().CurrentThreadData(), mm::ThreadState::kRunnable);
+    // Copied from the legacy MM. Value 1 is used there to signal that a singleton object is being initialized.
+    // TODO: Do we really need this check in the new MM?
+    auto* value = *location;
+    if (reinterpret_cast<uintptr_t>(value) > 1) {
+        *location = nullptr;
+    }
+}
+
+extern "C" RUNTIME_NOTHROW void ZeroArrayRefs(ArrayHeader* array) {
+    for (uint32_t index = 0; index < array->count_; ++index) {
+        ObjHeader** location = ArrayAddressOfElementAt(array, index);
+        ::UpdateRef(location, nullptr);
+    }
+}
+
+extern "C" RUNTIME_NOTHROW void ZeroStackRef(ObjHeader** location) {
+    ::UpdateRef(location, nullptr);
+}
+
+extern "C" RUNTIME_NOTHROW void UpdateStackRef(ObjHeader** location, const ObjHeader* object) {
+    ::UpdateRef(location, object);
+}
+
+extern "C" RUNTIME_NOTHROW void UpdateHeapRef(ObjHeader** location, const ObjHeader* object) {
+    ::UpdateRef(location, object);
+}
+
+extern "C" RUNTIME_NOTHROW void UpdateHeapRefIfNull(ObjHeader** location, const ObjHeader* object) {
+    ::UpdateRef(location, object);
+}
+
+extern "C" RUNTIME_NOTHROW void UpdateReturnRef(ObjHeader** returnSlot, const ObjHeader* object) {
+    ::UpdateRef(returnSlot, object);
 }
