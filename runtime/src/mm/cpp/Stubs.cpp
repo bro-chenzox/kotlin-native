@@ -79,4 +79,12 @@ RUNTIME_NOTHROW void Kotlin_mm_safePointExceptionUnwind() {
     TODO();
 }
 
+RUNTIME_NOTHROW void Kotlin_mm_safePointExternalCallReturn() {
+    TODO();
+}
+
+RUNTIME_NOTHROW void Kotlin_mm_safePointExternalCallUnwind() {
+    TODO();
+}
+
 } // extern "C"
